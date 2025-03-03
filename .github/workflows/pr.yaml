@@ -23,4 +23,4 @@ jobs:
 
       - run: go mod tidy && go mod vendor
 
-      - run: env GOOS=${{ matrix.os }} GOARCH=${{ matrix.arch }} go build .
+      - run: env GOOS=${{ matrix.os }} GOARCH=${{ matrix.arch }} go build -v ./...
