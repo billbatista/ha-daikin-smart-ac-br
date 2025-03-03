@@ -33,6 +33,7 @@ type Climate struct {
 	TemperatureUnit              string   `json:"temperature_unit"`
 	Precision                    float32  `json:"precision"`
 	SwingModeStateTopic          string   `json:"swing_mode_state_topic"`
+	SwingModeCommandTopic        string   `json:"swing_mode_command_topic"`
 	SwingModes                   []string `json:"swing_modes"`
 	Device                       Device   `json:"device"`
 	daikinClient                 *daikin.Client
@@ -65,13 +66,14 @@ func NewClimate(daikinClient *daikin.Client, mqttClient pahomqtt.Client, name st
 		FanModes:                     fanModes,
 		FanModeCommandTopic:          fmt.Sprintf("daikin/%s/fan_mode/set", uniqueId),
 		FanModeStateTopic:            fmt.Sprintf("daikin/%s/fan_mode/state", uniqueId),
+		TemperatureUnit:              "C",
+		Precision:                    float32(1),
 		TemperatureCommandTopic:      fmt.Sprintf("daikin/%s/target_temperature/set", uniqueId),
 		TemperatureStateTopic:        fmt.Sprintf("daikin/%s/target_temperature/state", uniqueId),
 		CurrentTemperatureStateTopic: fmt.Sprintf("daikin/%s/temperature/state", uniqueId),
-		TemperatureUnit:              "C",
-		Precision:                    float32(1),
-		SwingModeStateTopic:          fmt.Sprintf("daikin/%s/swing_mode/state", uniqueId),
 		SwingModes:                   []string{"on", "off"},
+		SwingModeCommandTopic:        fmt.Sprintf("daikin/%s/swing_mode/set", uniqueId),
+		SwingModeStateTopic:          fmt.Sprintf("daikin/%s/swing_mode/state", uniqueId),
 		Device: Device{
 			Name:         name,
 			Ids:          uniqueId,
@@ -108,75 +110,37 @@ func (c *Climate) StateUpdate(ctx context.Context) {
 				slog.ErrorContext(ctx, "failed to publish ac fan mode state", slog.Any("error", token.Error()))
 			}
 			slog.InfoContext(ctx, "fan mode updated", slog.String("fan_mode", fanMode), slog.String("name", c.Device.Name))
-			time.Sleep(1 * time.Second)
-		}
-	}()
-	go func() {
-		for {
-			v, ok := <-stateCh
-			if !ok {
-				slog.InfoContext(ctx, "channel closed")
-				return
-			}
+
 			currentTemp := strconv.FormatFloat(v.Port1.Sensors.RoomTemp, 'f', -1, 64)
-			token := c.mqtt.Publish(c.CurrentTemperatureStateTopic, 0, false, currentTemp)
+			token = c.mqtt.Publish(c.CurrentTemperatureStateTopic, 0, false, currentTemp)
 			if token.Error() != nil {
 				slog.ErrorContext(ctx, "failed to publish ac current temperature state", slog.Any("error", token.Error()))
 			}
 			slog.InfoContext(ctx, "current temperature updated", slog.String("current_temperature", currentTemp), slog.String("name", c.Device.Name))
-			time.Sleep(1 * time.Second)
-		}
-	}()
-	go func() {
-		for {
-			v, ok := <-stateCh
-			if !ok {
-				slog.InfoContext(ctx, "channel closed")
-				return
-			}
+
 			mode := c.parseMode(v.Port1.Mode)
 			if v.Port1.Power == 0 {
 				mode = "off"
 			}
-
-			token := c.mqtt.Publish(c.ModeStateTopic, 0, false, mode)
+			token = c.mqtt.Publish(c.ModeStateTopic, 0, false, mode)
 			if token.Error() != nil {
 				slog.ErrorContext(ctx, "failed to publish ac mode state", slog.Any("error", token.Error()))
 			}
 			slog.InfoContext(ctx, "mode updated", slog.String("mode", mode), slog.String("name", c.Device.Name))
-			time.Sleep(1 * time.Second)
-		}
-	}()
-	go func() {
-		for {
-			v, ok := <-stateCh
-			if !ok {
-				slog.InfoContext(ctx, "channel closed")
-				return
-			}
+
 			swingMode := c.parseSwing(v.Port1.VSwing)
-			token := c.mqtt.Publish(c.SwingModeStateTopic, 0, false, swingMode)
+			token = c.mqtt.Publish(c.SwingModeStateTopic, 0, false, swingMode)
 			if token.Error() != nil {
 				slog.ErrorContext(ctx, "failed to publish ac swing mode state", slog.Any("error", token.Error()))
 			}
 			slog.InfoContext(ctx, "swing mode updated", slog.String("swing_mode", swingMode), slog.String("name", c.Device.Name))
-			time.Sleep(1 * time.Second)
-		}
-	}()
-	go func() {
-		for {
-			v, ok := <-stateCh
-			if !ok {
-				slog.InfoContext(ctx, "channel closed")
-				return
-			}
+
 			targetTemp := strconv.FormatFloat(v.Port1.Temperature, 'f', -1, 64)
-			token := c.mqtt.Publish(c.TemperatureStateTopic, 0, false, targetTemp)
+			token = c.mqtt.Publish(c.TemperatureStateTopic, 0, false, targetTemp)
 			if token.Error() != nil {
 				slog.ErrorContext(ctx, "failed to publish ac target temperature state", slog.Any("error", token.Error()))
 			}
 			slog.InfoContext(ctx, "target temperature updated", slog.String("target_temperature", targetTemp), slog.String("name", c.Device.Name))
-			time.Sleep(1 * time.Second)
 		}
 	}()
 }
@@ -188,7 +152,7 @@ func (c *Climate) CommandSubscriptions() {
 		if fanMode.Error() != nil {
 			slog.Error("error subscribing", slog.Any("error", fanMode.Error()))
 		} else {
-			fmt.Println("subscribed to topic", slog.String("topic", c.FanModeCommandTopic))
+			slog.Info("subscribed to topic", slog.String("topic", c.FanModeCommandTopic))
 		}
 	}()
 
@@ -198,7 +162,27 @@ func (c *Climate) CommandSubscriptions() {
 		if operationMode.Error() != nil {
 			slog.Error("error subscribing", slog.Any("error", operationMode.Error()))
 		} else {
-			fmt.Println("subscribed to topic", slog.String("topic", c.ModeCommandTopic))
+			slog.Info("subscribed to topic", slog.String("topic", c.ModeCommandTopic))
+		}
+	}()
+
+	targetTemp := c.mqtt.Subscribe(c.TemperatureCommandTopic, 0, c.handleTargetTemp)
+	go func() {
+		_ = targetTemp.Wait()
+		if targetTemp.Error() != nil {
+			slog.Error("error subscribing", slog.Any("error", targetTemp.Error()))
+		} else {
+			slog.Info("subscribed to topic", slog.String("topic", c.TemperatureCommandTopic))
+		}
+	}()
+
+	swingMode := c.mqtt.Subscribe(c.SwingModeCommandTopic, 0, c.handleswingMode)
+	go func() {
+		_ = swingMode.Wait()
+		if swingMode.Error() != nil {
+			slog.Error("error subscribing", slog.Any("error", swingMode.Error()))
+		} else {
+			slog.Info("subscribed to topic", slog.String("topic", c.SwingModeCommandTopic))
 		}
 	}()
 }
@@ -328,6 +312,55 @@ func (c *Climate) handleMode(_ pahomqtt.Client, msg pahomqtt.Message) {
 	_, err := c.daikinClient.SetState(ctx, desiredState)
 	if err != nil {
 		slog.Error("failed to send mode to ac", slog.String("name", c.Device.Name), slog.Any("error", err))
+	}
+}
+
+func (c *Climate) handleTargetTemp(_ pahomqtt.Client, msg pahomqtt.Message) {
+	ctx, cancel := context.WithCancel(context.Background())
+	defer cancel()
+
+	payload := string(msg.Payload())
+	slog.Debug("set temperature received", slog.String("value", payload))
+
+	targetTemp, err := strconv.ParseFloat(payload, 64)
+	if err != nil {
+		slog.ErrorContext(ctx, "string to float conversion failed", slog.Any("error", err))
+		return
+	}
+
+	_, err = c.daikinClient.SetState(ctx, daikin.DesiredState{
+		Port1: daikin.PortState{
+			Temperature: &targetTemp,
+		},
+	})
+	if err != nil {
+		slog.Error("failed to send temperature to ac", slog.String("name", c.Device.Name), slog.Any("error", err))
+	}
+}
+
+func (c *Climate) handleswingMode(_ pahomqtt.Client, msg pahomqtt.Message) {
+	ctx, cancel := context.WithCancel(context.Background())
+	defer cancel()
+
+	payload := string(msg.Payload())
+	slog.Debug("set swing mode received", slog.String("value", payload))
+
+	swingMap := map[string]int{
+		"off": 0,
+		"on":  1,
+	}
+	value, ok := swingMap[payload]
+	if !ok {
+		slog.Error("unknown swing mode value", slog.Int("value", value))
+		return
+	}
+	_, err := c.daikinClient.SetState(ctx, daikin.DesiredState{
+		Port1: daikin.PortState{
+			VSwing: intPtr(value),
+		},
+	})
+	if err != nil {
+		slog.Error("failed to send temperature to ac", slog.String("name", c.Device.Name), slog.Any("error", err))
 	}
 }
 
