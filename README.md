@@ -44,9 +44,12 @@ Detalhes sobre os modos de ventilação: a lista é baseada nos modos suportados
 
 Este serviço pode ser executado de qualquer lugar da sua rede interna, desde que tenha acesso ao seu servidor MQTT e aos aparelhos de ar condicionado.
 
-## Docker (em breve)
+## Docker
 
-## Executável
+Exemplo de como executar com o docker, passando o arquivo de configuração:
+`docker run -v ./config.yaml:/app/config.yaml ghcr.io/billbatista/ha-daikin-smart-ac-br:latest`
+
+## Executável (em breve)
 
 Você pode baixar o executável de acordo com o seu sistema na página de [releases](). Com ele em mãos, no mesmo diretório crie o arquivo `config.yaml` conforme acima, e execute o programa.
 
