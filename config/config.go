@@ -39,7 +39,7 @@ func NewConfig(filePath string) (*Config, error) {
 
 	err = yaml.Unmarshal(file, &config)
 	if err != nil {
-		slog.Error("failed to read config file: %w", err)
+		slog.Error("failed to read config file", slog.Any("error", err))
 		return nil, err
 	}
 

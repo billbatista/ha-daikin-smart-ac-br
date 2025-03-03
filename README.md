@@ -6,6 +6,10 @@ Este projeto só foi possível graças ao trabalho feito pelo [crossworth](https
 
 Pessoas que possuem o ar condicionado da Daikin modelo Split Ecoswing R-32 e possivelmente a variante Gold.
 
+# Compatibilidade
+
+A lista de aparelhos compatíveis deve ser a mesma presente [aqui](https://github.com/crossworth/daikin?tab=readme-ov-file#compatibilidade), mas eu não tenho como validar diretamente. Se você conseguiu utilizar, abra uma issue informando o modelo da unidade interna do seu aparelho para que possamos adicionar a lista.
+
 # Como utilizar
 
 ## Secret key
@@ -18,73 +22,41 @@ Com o aplicativo configurado e funcionando, para obter a secret key é necessár
 
 Faça uma cópia do arquivo `copy_example.yaml` e renomeie para `config.yaml`. Substitua as informações de acordo com a sua infraestrutura (usuário e senha do mqtt, IP do ar condicionado etc).
 
--
+- unique_id (**obrigatório**): precisa ser um id único, que não se repita na sua instalação do Home Assistant. Ex.: `daikinsuite0001`
+- address (**obrigatório**): o ip mais porta do ar condicionado. Ex.: `http://192.168.0.15:15914`
+- secret_key (**obrigatório**): a chave obtida pelo site no passo acima
+- operation_modes (**opcional**): estes são os modos suportados pelo seu aparelho, como `automático`, `desumidificador`, `aquecer` etc. Se não informado, a lista padrão será utilizada: `auto`, `off`, `cool`, `heat`, `dry`, `fan_only`. Se o seu modelo é apenas frio, passe a lista apenas com os demais modos:
 
-## Docker
+```yaml
+operation_modes:
+  - auto
+  - off
+  - cool
+  - dry
+  - fan_only
+```
+
+- fan_modes (**opcional**): modos de ventilação do aparelho. Se não informado, a lista padrão é utilizada: `auto`, `low`, `medium`, `high`
+
+Detalhes sobre os modos de ventilação: a lista é baseada nos modos suportados pelo Home Assistant. O aparelho de ar condicionado em si suporta mais modos. Alguns foram agrupados (baixo e média-baixa: low) e outros ainda precisam ser implementados, como o modo silencioso.
+
+# Como executar
+
+Este serviço pode ser executado de qualquer lugar da sua rede interna, desde que tenha acesso ao seu servidor MQTT e aos aparelhos de ar condicionado.
+
+## Docker (em breve)
 
 ## Executável
 
-Você pode baixar o executável de acordo com o seu sistema na página de [releases]().
+Você pode baixar o executável de acordo com o seu sistema na página de [releases](). Com ele em mãos, no mesmo diretório crie o arquivo `config.yaml` conforme acima, e execute o programa.
 
-# Setup
+# To do
 
-- make State() request to check if ok and grab info.
-- publish mqtt discovery messages for each sensor and entity
-  - climate
-  - external temp sensor (with availability topic for when the AC is off)
-  - econo switch
-  - confort switch
-  - powerchill switch
-  - good_sleep switch
-- grab and update ac current state async
-- subscribe to command topics
-  - handle commands
-    - call SetState()
-    - publish result for each sensor/entity
-
-## Discovery climate
-
-```json
-{
-  "name": "Ar condicionado",
-  "unique_id": "DAIKIN46ACB4",
-  "current_temperature_topic": "daikin/DAIKIN46ACB4/temperature",
-  "fan_modes": ["auto", "low", "high", "medium"],
-  "fan_mode_command_topic": "daikin/DAIKIN46ACB4/fan_mode/set",
-  "fan_mode_state_topic": "daikin/DAIKIN46ACB4/fan_mode/state",
-  "device": {
-    "manufacturer": "Daikin Brazil",
-    "identifiers": "DAIKIN46ACB4",
-    "name": "Daikin Ecoswing Smart R-32 Suíte"
-  }
-}
-```
-
-# Switch economy
-
-```json
-{
-  "name": "Econômico",
-  "unique_id": "DAIKIN000001_Economy",
-  "command_topic": "daikinsmartac/DAIKIN000001/economy/set",
-  "state_topic": "daikinsmartac/DAIKIN000001/economy/state",
-  "state_off ": "OFF",
-  "state_on ": "ON",
-  "payload_off ": "OFF",
-  "payload_on ": "ON",
-  "device": {
-    "manufacturer": "Daikin Brasil",
-    "via_device": "OneControl Gateway",
-    "identifiers": "hvac_0000000DA7271001",
-    "name": "Daikin Smart AC Brasil Bridge",
-    "sw_version": "1.0"
-  }
-}
-```
-
-# state update
-
-- fan
-- operation
-- temperature
-- switches
+- modo turbo
+- modo economia
+- modo conforto
+- fan mode silencioso
+- sensor de temperatura externa
+- possibilitar uso de ssl e certificados na configuração do MQTT
+- onboard mais fácil, fazendo a busca da secret key informando apenas o usuário e senha, como é feito no [site](https://daikin-extract-secret-key.fly.dev/)
+- desabilitar discovery por uma interface web
