@@ -5,6 +5,7 @@ go 1.23.4
 require (
 	github.com/eclipse/paho.mqtt.golang v1.5.0
 	github.com/valyala/fasthttp v1.51.0
+	gopkg.in/yaml.v3 v3.0.1
 )
 
 require (

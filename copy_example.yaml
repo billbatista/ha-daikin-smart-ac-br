@@ -1,0 +1,26 @@
+mqtt:
+  host: 192.168.0.10
+  port: 1883
+  username: user
+  password: password
+
+devices:
+  - bedroom:
+    name: Bedroom AC
+    unique_id: bedroomac
+    address: http://192.168.0.15:15914
+    secret_key: 4QupBk1jYe3DZLB9tLYBvQ==
+    operation_modes:
+      - auto
+      - off
+      - cool
+    fan_modes:
+      - auto
+      - low
+      - high
+
+  - escritorio:
+    name: Escritório
+    unique_id: daikinescritorio01
+    address: http://10.20.20.10:15914
+    secret_key: 5KupBk1jYe3DZLB9tLYBvQ==
