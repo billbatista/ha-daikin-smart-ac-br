@@ -5,6 +5,7 @@ import (
 	"encoding/json"
 	"fmt"
 	"log/slog"
+	"reflect"
 	"strconv"
 	"strings"
 	"time"
@@ -38,6 +39,7 @@ type Climate struct {
 	Device                       Device   `json:"device"`
 	daikinClient                 *daikin.Client
 	mqtt                         pahomqtt.Client
+	currentState                 *daikin.State
 }
 
 type Device struct {
@@ -90,10 +92,16 @@ func (c *Climate) StateUpdate(ctx context.Context) {
 			state, err := c.daikinClient.State(ctx)
 			duration := time.Since(start)
 			if err != nil {
-				slog.ErrorContext(ctx, "failed to get ac state", slog.String("name", c.Device.Name))
+				slog.ErrorContext(ctx, "failed to get ac state", slog.String("name", c.UniqueId), slog.Any("error", err))
 			}
-			slog.InfoContext(ctx, "retrieved ac state", slog.String("name", c.Device.Name), slog.Any("duration", duration))
-			stateCh <- state
+			slog.InfoContext(ctx, "retrieved ac state", slog.String("name", c.UniqueId), slog.Any("duration", duration))
+
+			if !reflect.DeepEqual(state, c.currentState) {
+				c.currentState = state
+				stateCh <- state
+			}
+
+			slog.DebugContext(ctx, "no state change", slog.String("name", c.UniqueId))
 			time.Sleep(1 * time.Second)
 		}
 	}()
@@ -109,14 +117,14 @@ func (c *Climate) StateUpdate(ctx context.Context) {
 			if token.Error() != nil {
 				slog.ErrorContext(ctx, "failed to publish ac fan mode state", slog.Any("error", token.Error()))
 			}
-			slog.InfoContext(ctx, "fan mode updated", slog.String("fan_mode", fanMode), slog.String("name", c.Device.Name))
+			slog.InfoContext(ctx, "fan mode updated", slog.String("fan_mode", fanMode), slog.String("name", c.UniqueId))
 
 			currentTemp := strconv.FormatFloat(v.Port1.Sensors.RoomTemp, 'f', -1, 64)
 			token = c.mqtt.Publish(c.CurrentTemperatureStateTopic, 0, false, currentTemp)
 			if token.Error() != nil {
 				slog.ErrorContext(ctx, "failed to publish ac current temperature state", slog.Any("error", token.Error()))
 			}
-			slog.InfoContext(ctx, "current temperature updated", slog.String("current_temperature", currentTemp), slog.String("name", c.Device.Name))
+			slog.InfoContext(ctx, "current temperature updated", slog.String("current_temperature", currentTemp), slog.String("name", c.UniqueId))
 
 			mode := c.parseMode(v.Port1.Mode)
 			if v.Port1.Power == 0 {
@@ -126,21 +134,21 @@ func (c *Climate) StateUpdate(ctx context.Context) {
 			if token.Error() != nil {
 				slog.ErrorContext(ctx, "failed to publish ac mode state", slog.Any("error", token.Error()))
 			}
-			slog.InfoContext(ctx, "mode updated", slog.String("mode", mode), slog.String("name", c.Device.Name))
+			slog.InfoContext(ctx, "mode updated", slog.String("mode", mode), slog.String("name", c.UniqueId))
 
 			swingMode := c.parseSwing(v.Port1.VSwing)
 			token = c.mqtt.Publish(c.SwingModeStateTopic, 0, false, swingMode)
 			if token.Error() != nil {
 				slog.ErrorContext(ctx, "failed to publish ac swing mode state", slog.Any("error", token.Error()))
 			}
-			slog.InfoContext(ctx, "swing mode updated", slog.String("swing_mode", swingMode), slog.String("name", c.Device.Name))
+			slog.InfoContext(ctx, "swing mode updated", slog.String("swing_mode", swingMode), slog.String("name", c.UniqueId))
 
 			targetTemp := strconv.FormatFloat(v.Port1.Temperature, 'f', -1, 64)
 			token = c.mqtt.Publish(c.TemperatureStateTopic, 0, false, targetTemp)
 			if token.Error() != nil {
 				slog.ErrorContext(ctx, "failed to publish ac target temperature state", slog.Any("error", token.Error()))
 			}
-			slog.InfoContext(ctx, "target temperature updated", slog.String("target_temperature", targetTemp), slog.String("name", c.Device.Name))
+			slog.InfoContext(ctx, "target temperature updated", slog.String("target_temperature", targetTemp), slog.String("name", c.UniqueId))
 		}
 	}()
 }
@@ -190,16 +198,135 @@ func (c *Climate) CommandSubscriptions() {
 func (c *Climate) PublishDiscovery() {
 	payload, err := json.Marshal(c)
 	if err != nil {
-		slog.Error("failed to marshal payload")
+		slog.Error("failed to marshal payload", slog.Any("error", err))
 	}
 
 	token := c.mqtt.Publish(c.DiscoveryTopic(), 0, true, payload)
 	go func() {
 		_ = token.Wait()
 		if token.Error() != nil {
-			slog.Error("failed to publish discovery", slog.String("device", c.Device.Name), slog.Any("error", token.Error()))
+			slog.Error("failed to publish discovery", slog.String("name", c.UniqueId), slog.Any("error", token.Error()))
 		}
 	}()
+}
+
+func (c *Climate) DiscoveryPayload() []byte {
+	payload, err := json.Marshal(c)
+	if err != nil {
+		slog.Error("failed to marshal payload", slog.Any("error", err))
+		return []byte{}
+	}
+
+	return payload
+}
+
+func (c *Climate) DiscoveryTopic() string {
+	return fmt.Sprintf("homeassistant/climate/%s/config", c.UniqueId)
+}
+
+func (c *Climate) handleFanMode(_ pahomqtt.Client, msg pahomqtt.Message) {
+	ctx, cancel := context.WithCancel(context.Background())
+	defer cancel()
+	translate := map[string]daikin.Fan{
+		"auto":   17,
+		"low":    3,
+		"medium": 5,
+		"high":   7,
+	}
+	value, ok := translate[string(msg.Payload())]
+	if !ok {
+		slog.Error("unknown value for fan mode", slog.Int("value", int(value)))
+		return
+	}
+	slog.Debug("set fan mode received", slog.String("value", value.String()))
+	_, err := c.daikinClient.SetState(ctx, daikin.DesiredState{
+		Port1: daikin.PortState{
+			Fan: &value,
+		},
+	})
+	if err != nil {
+		slog.Error("failed to send fan mode to ac", slog.String("name", c.Device.Name), slog.Any("error", err))
+	}
+}
+
+func (c *Climate) handleMode(_ pahomqtt.Client, msg pahomqtt.Message) {
+	ctx, cancel := context.WithCancel(context.Background())
+	defer cancel()
+
+	payload := string(msg.Payload())
+	var desiredState = daikin.DesiredState{}
+	modesMap := map[string]daikin.Mode{
+		"auto":     0,
+		"dry":      2,
+		"cool":     3,
+		"heat":     4,
+		"fan_only": 6,
+	}
+
+	mode, ok := modesMap[payload]
+	if ok {
+		desiredState.Port1.Mode = &mode
+		desiredState.Port1.Power = intPtr(1)
+	} else if payload == "off" {
+		desiredState.Port1.Power = intPtr(0)
+	} else {
+		slog.Error("unknown mode", slog.String("payload", payload))
+		return
+	}
+	slog.Debug("set fan mode received", slog.String("payload", mode.String()))
+	_, err := c.daikinClient.SetState(ctx, desiredState)
+	if err != nil {
+		slog.Error("failed to send mode to ac", slog.String("name", c.Device.Name), slog.Any("error", err))
+	}
+}
+
+func (c *Climate) handleTargetTemp(_ pahomqtt.Client, msg pahomqtt.Message) {
+	ctx, cancel := context.WithCancel(context.Background())
+	defer cancel()
+
+	payload := string(msg.Payload())
+	slog.Debug("set temperature received", slog.String("value", payload))
+
+	targetTemp, err := strconv.ParseFloat(payload, 64)
+	if err != nil {
+		slog.ErrorContext(ctx, "string to float conversion failed", slog.Any("error", err))
+		return
+	}
+
+	_, err = c.daikinClient.SetState(ctx, daikin.DesiredState{
+		Port1: daikin.PortState{
+			Temperature: &targetTemp,
+		},
+	})
+	if err != nil {
+		slog.Error("failed to send temperature to ac", slog.String("name", c.Device.Name), slog.Any("error", err))
+	}
+}
+
+func (c *Climate) handleswingMode(_ pahomqtt.Client, msg pahomqtt.Message) {
+	ctx, cancel := context.WithCancel(context.Background())
+	defer cancel()
+
+	payload := string(msg.Payload())
+	slog.Debug("set swing mode received", slog.String("payload", payload))
+
+	swingMap := map[string]int{
+		"off": 0,
+		"on":  1,
+	}
+	value, ok := swingMap[payload]
+	if !ok {
+		slog.Error("unknown swing mode value", slog.String("payload", payload))
+		return
+	}
+	_, err := c.daikinClient.SetState(ctx, daikin.DesiredState{
+		Port1: daikin.PortState{
+			VSwing: intPtr(value),
+		},
+	})
+	if err != nil {
+		slog.Error("failed to send temperature to ac", slog.String("name", c.Device.Name), slog.Any("error", err))
+	}
 }
 
 func (c *Climate) parseSwing(i int) string {
@@ -242,125 +369,6 @@ func (c *Climate) parseMode(m daikin.Mode) string {
 		return "fan_only"
 	default:
 		return m.String()
-	}
-}
-
-func (c *Climate) DiscoveryPayload() []byte {
-	payload, err := json.Marshal(c)
-	if err != nil {
-		slog.Error("failed to marshal payload")
-		return []byte{}
-	}
-
-	return payload
-}
-
-func (c *Climate) DiscoveryTopic() string {
-	return fmt.Sprintf("homeassistant/climate/%s/config", c.UniqueId)
-}
-
-func (c *Climate) handleFanMode(_ pahomqtt.Client, msg pahomqtt.Message) {
-	ctx, cancel := context.WithCancel(context.Background())
-	defer cancel()
-	translate := map[string]daikin.Fan{
-		"auto":   17,
-		"low":    3,
-		"medium": 5,
-		"high":   7,
-	}
-	value, ok := translate[string(msg.Payload())]
-	if !ok {
-		slog.Error("unknown value for fan mode", slog.Int("value", int(value)))
-		return
-	}
-	slog.Debug("set fan mode received", slog.String("value", value.String()))
-	_, err := c.daikinClient.SetState(ctx, daikin.DesiredState{
-		Port1: daikin.PortState{
-			Fan: &value,
-		},
-	})
-	if err != nil {
-		slog.Error("failed to send fan mode to ac", slog.String("name", c.Device.Name))
-	}
-}
-
-func (c *Climate) handleMode(_ pahomqtt.Client, msg pahomqtt.Message) {
-	ctx, cancel := context.WithCancel(context.Background())
-	defer cancel()
-
-	payload := string(msg.Payload())
-	var desiredState = daikin.DesiredState{}
-	modesMap := map[string]daikin.Mode{
-		"auto":     0,
-		"dry":      2,
-		"cool":     3,
-		"heat":     4,
-		"fan_only": 6,
-	}
-
-	mode, ok := modesMap[payload]
-	if ok {
-		desiredState.Port1.Mode = &mode
-		desiredState.Port1.Power = intPtr(1)
-	} else if payload == "off" {
-		desiredState.Port1.Power = intPtr(0)
-	} else {
-		slog.Error("unknown mode", slog.String("value", payload))
-		return
-	}
-	slog.Debug("set fan mode received", slog.String("value", mode.String()))
-	_, err := c.daikinClient.SetState(ctx, desiredState)
-	if err != nil {
-		slog.Error("failed to send mode to ac", slog.String("name", c.Device.Name), slog.Any("error", err))
-	}
-}
-
-func (c *Climate) handleTargetTemp(_ pahomqtt.Client, msg pahomqtt.Message) {
-	ctx, cancel := context.WithCancel(context.Background())
-	defer cancel()
-
-	payload := string(msg.Payload())
-	slog.Debug("set temperature received", slog.String("value", payload))
-
-	targetTemp, err := strconv.ParseFloat(payload, 64)
-	if err != nil {
-		slog.ErrorContext(ctx, "string to float conversion failed", slog.Any("error", err))
-		return
-	}
-
-	_, err = c.daikinClient.SetState(ctx, daikin.DesiredState{
-		Port1: daikin.PortState{
-			Temperature: &targetTemp,
-		},
-	})
-	if err != nil {
-		slog.Error("failed to send temperature to ac", slog.String("name", c.Device.Name), slog.Any("error", err))
-	}
-}
-
-func (c *Climate) handleswingMode(_ pahomqtt.Client, msg pahomqtt.Message) {
-	ctx, cancel := context.WithCancel(context.Background())
-	defer cancel()
-
-	payload := string(msg.Payload())
-	slog.Debug("set swing mode received", slog.String("value", payload))
-
-	swingMap := map[string]int{
-		"off": 0,
-		"on":  1,
-	}
-	value, ok := swingMap[payload]
-	if !ok {
-		slog.Error("unknown swing mode value", slog.Int("value", value))
-		return
-	}
-	_, err := c.daikinClient.SetState(ctx, daikin.DesiredState{
-		Port1: daikin.PortState{
-			VSwing: intPtr(value),
-		},
-	})
-	if err != nil {
-		slog.Error("failed to send temperature to ac", slog.String("name", c.Device.Name), slog.Any("error", err))
 	}
 }
 

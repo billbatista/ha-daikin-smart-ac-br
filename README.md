@@ -52,6 +52,7 @@ Você pode baixar o executável de acordo com o seu sistema na página de [relea
 
 # To do
 
+- validação de configuração
 - modo turbo
 - modo economia
 - modo conforto
