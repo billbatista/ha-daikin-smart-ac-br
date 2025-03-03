@@ -44,9 +44,9 @@ func Server(ctx context.Context) error {
 		return token.Error()
 	}
 	defer func() {
-		fmt.Println("signal caught - exiting")
+		slog.Info("signal caught - exiting")
 		mqttClient.Disconnect(1000)
-		fmt.Println("shutdown complete")
+		slog.Info("shutdown complete")
 	}()
 
 	for _, d := range config.Devices {
@@ -61,6 +61,10 @@ func Server(ctx context.Context) error {
 		ac.PublishDiscovery()
 		ac.StateUpdate(ctx)
 		ac.CommandSubscriptions()
+
+		defer func() {
+			ac.PublishUnavailable(ctx)
+		}()
 	}
 
 	// Grab info from config (yaml) or from aws/iotalabs things

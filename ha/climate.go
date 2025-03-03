@@ -36,6 +36,7 @@ type Climate struct {
 	SwingModeStateTopic          string   `json:"swing_mode_state_topic"`
 	SwingModeCommandTopic        string   `json:"swing_mode_command_topic"`
 	SwingModes                   []string `json:"swing_modes"`
+	AvailabilityTopic            string   `json:"availability_topic"`
 	Device                       Device   `json:"device"`
 	daikinClient                 *daikin.Client
 	mqtt                         pahomqtt.Client
@@ -76,6 +77,7 @@ func NewClimate(daikinClient *daikin.Client, mqttClient pahomqtt.Client, name st
 		SwingModes:                   []string{"on", "off"},
 		SwingModeCommandTopic:        fmt.Sprintf("daikin/%s/swing_mode/set", uniqueId),
 		SwingModeStateTopic:          fmt.Sprintf("daikin/%s/swing_mode/state", uniqueId),
+		AvailabilityTopic:            fmt.Sprintf("daikin/%s/availability", uniqueId),
 		Device: Device{
 			Name:         name,
 			Ids:          uniqueId,
@@ -206,6 +208,29 @@ func (c *Climate) PublishDiscovery() {
 		_ = token.Wait()
 		if token.Error() != nil {
 			slog.Error("failed to publish discovery", slog.String("name", c.UniqueId), slog.Any("error", token.Error()))
+		}
+	}()
+
+	c.publishAvailable()
+}
+
+func (c *Climate) PublishUnavailable(ctx context.Context) {
+	token := c.mqtt.Publish(c.AvailabilityTopic, 0, true, "offline")
+	go func() {
+		_ = token.Wait()
+		slog.Info("set device to unavailable")
+		if token.Error() != nil {
+			slog.Error("failed to availability", slog.String("name", c.UniqueId), slog.Any("error", token.Error()))
+		}
+	}()
+}
+
+func (c *Climate) publishAvailable() {
+	token := c.mqtt.Publish(c.AvailabilityTopic, 0, true, "online")
+	go func() {
+		_ = token.Wait()
+		if token.Error() != nil {
+			slog.Error("failed to availability", slog.String("name", c.UniqueId), slog.Any("error", token.Error()))
 		}
 	}()
 }
