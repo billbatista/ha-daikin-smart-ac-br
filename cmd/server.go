@@ -22,17 +22,6 @@ func Server(ctx context.Context) error {
 		return err
 	}
 
-	url, err := url.Parse(config.Devices[0].Address)
-	if err != nil {
-		fmt.Printf("invalid target address: %v\n", err)
-		return err
-	}
-	secretKey, err := base64.StdEncoding.DecodeString(config.Devices[0].SecretKey)
-	if err != nil {
-		fmt.Printf("could not decode the secret key: %v\n", err)
-		return err
-	}
-
 	mqttClient := pahomqtt.NewClient(
 		pahomqtt.NewClientOptions().
 			AddBroker(fmt.Sprintf("tcp://%s:%s", config.Mqtt.Host, config.Mqtt.Port)).
@@ -50,6 +39,16 @@ func Server(ctx context.Context) error {
 	}()
 
 	for _, d := range config.Devices {
+		url, err := url.Parse(d.Address)
+		if err != nil {
+			fmt.Printf("invalid target address: %v\n", err)
+			return err
+		}
+		secretKey, err := base64.StdEncoding.DecodeString(d.SecretKey)
+		if err != nil {
+			fmt.Printf("could not decode the secret key: %v\n", err)
+			return err
+		}
 		client := daikin.NewClient(url, secretKey)
 		_, err = client.State(ctx)
 		if err != nil {
@@ -67,7 +66,6 @@ func Server(ctx context.Context) error {
 		}()
 	}
 
-	// Grab info from config (yaml) or from aws/iotalabs things
 	sig := make(chan os.Signal, 1)
 	signal.Notify(sig, os.Interrupt)
 	signal.Notify(sig, syscall.SIGTERM)

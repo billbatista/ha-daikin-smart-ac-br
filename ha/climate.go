@@ -8,6 +8,7 @@ import (
 	"reflect"
 	"strconv"
 	"strings"
+	"sync"
 	"time"
 
 	"github.com/billbatista/ha-daikin-smart-ac-br/daikin"
@@ -203,14 +204,18 @@ func (c *Climate) PublishDiscovery() {
 		slog.Error("failed to marshal payload", slog.Any("error", err))
 	}
 
+	var wg sync.WaitGroup
 	token := c.mqtt.Publish(c.DiscoveryTopic(), 0, true, payload)
+	wg.Add(1)
 	go func() {
 		_ = token.Wait()
 		if token.Error() != nil {
 			slog.Error("failed to publish discovery", slog.String("name", c.UniqueId), slog.Any("error", token.Error()))
 		}
+		wg.Done()
 	}()
 
+	wg.Wait()
 	c.publishAvailable()
 }
 
