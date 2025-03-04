@@ -46,7 +46,7 @@ Este serviço pode ser executado de qualquer lugar da sua rede interna, desde qu
 
 ## Docker
 
-Exemplo de como executar com o docker, passando o arquivo de configuração:
+Copie o arquivo de configuração para o servidor onde o serviço será executado via Docker, e com o terminal no diretório de onde o arquivo se encontra, execute:
 `docker run -v ./config.yaml:/app/config.yaml ghcr.io/billbatista/ha-daikin-smart-ac-br:latest`
 
 ## Executável (em breve)
