@@ -43,7 +43,7 @@ func (c *Client) makeRequest(ctx context.Context, method string, path string, bo
 	defer fasthttp.ReleaseResponse(resp)
 	req.SetRequestURI(endpoint)
 	req.Header.SetMethod(method)
-	req.SetTimeout(30 * time.Second)
+	req.SetTimeout(15 * time.Second)
 	if len(body) > 0 {
 		req.SetBody(body)
 	}

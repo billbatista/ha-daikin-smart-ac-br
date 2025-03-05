@@ -8,6 +8,7 @@ import (
 	"net/url"
 	"os"
 	"os/signal"
+	"sync"
 	"syscall"
 
 	"github.com/billbatista/ha-daikin-smart-ac-br/config"
@@ -32,6 +33,8 @@ func Server(ctx context.Context) error {
 		slog.Error("failed to connect", slog.Any("error", token.Error()))
 		return token.Error()
 	}
+	slog.Info("connected to mqtt")
+
 	defer func() {
 		slog.Info("signal caught - exiting")
 		mqttClient.Disconnect(1000)
@@ -41,26 +44,38 @@ func Server(ctx context.Context) error {
 	for _, d := range config.Devices {
 		url, err := url.Parse(d.Address)
 		if err != nil {
-			fmt.Printf("invalid target address: %v\n", err)
+			slog.Error("invalid target address", slog.Any("error", err), slog.String("address", d.Address))
 			return err
 		}
 		secretKey, err := base64.StdEncoding.DecodeString(d.SecretKey)
 		if err != nil {
-			fmt.Printf("could not decode the secret key: %v\n", err)
+			slog.Error("invalid secret key", slog.Any("error", err), slog.String("secretKey", d.SecretKey))
 			return err
 		}
 		client := daikin.NewClient(url, secretKey)
+		ac := ha.NewClimate(client, mqttClient, d.Name, d.UniqueId, d.OperationModes, d.FanModes)
+
+		var wg sync.WaitGroup
+		wg.Add(1)
+		go func() {
+			ac.PublishDiscovery()
+			wg.Done()
+		}()
+		wg.Wait()
+
 		_, err = client.State(ctx)
 		if err != nil {
-			fmt.Print("could not get ac state")
-			return err
+			slog.Error("could not get ac state", slog.String("name", d.UniqueId))
+			ac.PublishUnavailable(ctx)
 		}
 
-		ac := ha.NewClimate(client, mqttClient, d.Name, d.UniqueId, d.OperationModes, d.FanModes)
-		ac.PublishDiscovery()
-		ac.StateUpdate(ctx)
-		ac.CommandSubscriptions()
-
+		if err == nil {
+			go func() {
+				ac.PublishAvailable()
+				ac.StateUpdate(ctx)
+				ac.CommandSubscriptions()
+			}()
+		}
 		defer func() {
 			ac.PublishUnavailable(ctx)
 		}()
