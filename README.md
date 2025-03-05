@@ -64,3 +64,4 @@ Você pode baixar o executável de acordo com o seu sistema na página de [relea
 - possibilitar uso de ssl e certificados na configuração do MQTT
 - onboard mais fácil, fazendo a busca da secret key informando apenas o usuário e senha, como é feito no [site](https://daikin-extract-secret-key.fly.dev/)
 - desabilitar discovery por uma interface web
+- cross platform release
