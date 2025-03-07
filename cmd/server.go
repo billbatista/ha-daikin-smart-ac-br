@@ -65,7 +65,7 @@ func Server(ctx context.Context) error {
 
 		_, err = client.State(ctx)
 		if err != nil {
-			slog.Error("could not get ac state", slog.String("name", d.UniqueId))
+			slog.Error("could not get ac state", slog.String("name", d.UniqueId), slog.Any("error", err))
 			ac.PublishUnavailable(ctx)
 		}
 

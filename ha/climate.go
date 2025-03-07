@@ -37,6 +37,9 @@ type Climate struct {
 	SwingModeCommandTopic        string   `json:"swing_mode_command_topic"`
 	SwingModes                   []string `json:"swing_modes"`
 	AvailabilityTopic            string   `json:"availability_topic"`
+	PresetModes                  []string `json:"preset_modes"`
+	PresetModeStateTopic         string   `json:"preset_mode_state_topic"`
+	PresetModeCommandTopic       string   `json:"preset_mode_command_topic"`
 	Device                       Device   `json:"device"`
 	daikinClient                 *daikin.Client
 	mqtt                         pahomqtt.Client
@@ -78,6 +81,9 @@ func NewClimate(daikinClient *daikin.Client, mqttClient pahomqtt.Client, name st
 		SwingModeCommandTopic:        fmt.Sprintf("daikin/%s/swing_mode/set", uniqueId),
 		SwingModeStateTopic:          fmt.Sprintf("daikin/%s/swing_mode/state", uniqueId),
 		AvailabilityTopic:            fmt.Sprintf("daikin/%s/availability", uniqueId),
+		PresetModes:                  []string{"eco", "boost", "comfort", "sleep"},
+		PresetModeStateTopic:         fmt.Sprintf("daikin/%s/preset/state", uniqueId),
+		PresetModeCommandTopic:       fmt.Sprintf("daikin/%s/preset/set", uniqueId),
 		Device: Device{
 			Name:         name,
 			Ids:          uniqueId,
@@ -206,7 +212,7 @@ func (c *Climate) PublishDiscovery() {
 		slog.Error("failed to marshal payload", slog.Any("error", err))
 	}
 
-	token := c.mqtt.Publish(c.DiscoveryTopic(), 0, true, payload)
+	token := c.mqtt.Publish(c.discoveryTopic(), 0, true, payload)
 	go func() {
 		_ = token.Wait()
 		if token.Error() != nil {
@@ -246,7 +252,7 @@ func (c *Climate) DiscoveryPayload() []byte {
 	return payload
 }
 
-func (c *Climate) DiscoveryTopic() string {
+func (c *Climate) discoveryTopic() string {
 	return fmt.Sprintf("homeassistant/climate/%s/config", c.UniqueId)
 }
 
