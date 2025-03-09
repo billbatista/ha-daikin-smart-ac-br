@@ -10,6 +10,15 @@ Pessoas que possuem o ar condicionado da Daikin modelo Split Ecoswing R-32 e pos
 
 A lista de aparelhos compatíveis deve ser a mesma presente [aqui](https://github.com/crossworth/daikin?tab=readme-ov-file#compatibilidade), mas eu não tenho como validar diretamente. Se você conseguiu utilizar, abra uma issue informando o modelo da unidade interna do seu aparelho para que possamos adicionar a lista.
 
+Modelos que foram validados e funcionam:
+
+|Modelo da unidade interna|
+|---|
+| FTKP12Q5VL|
+| FTHP12Q5VL|
+| RHP18S5VL |
+| RHP09S5VL |
+
 # Como utilizar
 
 ## Secret key
